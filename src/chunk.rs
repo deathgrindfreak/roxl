@@ -53,15 +53,13 @@ impl Chunk {
 
     pub fn get_line(&self, idx: usize) -> Option<u32>{
         let mut offset: i32 = idx as i32;
-        let mut curr = None;
         for &(line, count) in &self.lines {
             offset -= count as i32;
-            curr = Some(line);
-            if offset <= 0 {
+            if offset < 0 {
                 return Some(line)
             }
         }
-        curr
+        None
     }
 
     pub fn add_constant(&mut self, value: f64) -> usize {
@@ -125,5 +123,51 @@ impl Chunk {
     fn simple_instruction(name: &str, offset: usize) -> usize {
         println!("{}", name);
         offset + 1
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_line_rle() {
+        let mut chunk = Chunk::default();
+
+        assert_eq!(chunk.get_line(0), None);
+        assert_eq!(chunk.get_line(10), None);
+
+        chunk.write(OpCode::Return, 0);
+        chunk.write(OpCode::Return, 0);
+        chunk.write(OpCode::Return, 0);
+
+        for offset in 0..=2 {
+            assert_eq!(chunk.get_line(offset), Some(0));
+        }
+
+        assert_eq!(chunk.get_line(10), None);
+
+        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 1);
+
+        for offset in 3..=6 {
+            assert_eq!(chunk.get_line(offset), Some(1));
+        }
+
+        assert_eq!(chunk.get_line(1000), None);
+
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+
+        for offset in 7..=11 {
+            assert_eq!(chunk.get_line(offset), Some(2));
+        }
+
+        assert_eq!(chunk.get_line(10000), None);
     }
 }
