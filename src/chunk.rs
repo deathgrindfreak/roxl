@@ -1,3 +1,8 @@
+pub enum ChunkError {
+    IPOutOfBoundsError,
+    BadOPCodeError(u8),
+}
+
 pub enum OpCode {
     Constant,
     ConstantLong,
@@ -5,14 +10,14 @@ pub enum OpCode {
 }
 
 impl TryFrom<u8> for OpCode {
-    type Error = u8;
+    type Error = ChunkError;
 
-    fn try_from(value: u8) -> Result<OpCode, u8> {
+    fn try_from(value: u8) -> Result<OpCode, ChunkError> {
         match value {
             0x00 => Ok(OpCode::Constant),
             0x01 => Ok(OpCode::ConstantLong),
             0x02 => Ok(OpCode::Return),
-            _ => Err(value),
+            _ => Err(ChunkError::BadOPCodeError(value)),
         }
     }
 }
@@ -35,6 +40,18 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    pub fn read(&self, ip: usize) -> Result<u8, ChunkError> {
+        self.code.get(ip).ok_or(ChunkError::IPOutOfBoundsError).map(|&op| op)
+    }
+
+    pub fn read_op(&self, ip: usize) -> Result<OpCode, ChunkError> {
+        self.read(ip)?.try_into()
+    }
+
+    pub fn read_constant(&self, ip: usize) -> Result<f64, ChunkError> {
+        self.constants.get(ip).ok_or(ChunkError::IPOutOfBoundsError).map(|&op| op)
+    }
+
     pub fn write<U: Into<u8>>(&mut self, op: U, line: u32) {
         self.code.push(op.into());
 
@@ -137,37 +154,44 @@ mod test {
         assert_eq!(chunk.get_line(0), None);
         assert_eq!(chunk.get_line(10), None);
 
-        chunk.write(OpCode::Return, 0);
-        chunk.write(OpCode::Return, 0);
-        chunk.write(OpCode::Return, 0);
+        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 1);
 
         for offset in 0..=2 {
-            assert_eq!(chunk.get_line(offset), Some(0));
+            assert_eq!(chunk.get_line(offset), Some(1));
         }
 
         assert_eq!(chunk.get_line(10), None);
 
-        chunk.write(OpCode::Return, 1);
-        chunk.write(OpCode::Return, 1);
-        chunk.write(OpCode::Return, 1);
-        chunk.write(OpCode::Return, 1);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 2);
 
         for offset in 3..=6 {
-            assert_eq!(chunk.get_line(offset), Some(1));
+            assert_eq!(chunk.get_line(offset), Some(2));
         }
 
         assert_eq!(chunk.get_line(1000), None);
 
-        chunk.write(OpCode::Return, 2);
-        chunk.write(OpCode::Return, 2);
-        chunk.write(OpCode::Return, 2);
-        chunk.write(OpCode::Return, 2);
-        chunk.write(OpCode::Return, 2);
+        chunk.write(OpCode::Return, 3);
+        chunk.write(OpCode::Return, 3);
+        chunk.write(OpCode::Return, 3);
+        chunk.write(OpCode::Return, 3);
+        chunk.write(OpCode::Return, 3);
 
         for offset in 7..=11 {
-            assert_eq!(chunk.get_line(offset), Some(2));
+            assert_eq!(chunk.get_line(offset), Some(3));
         }
 
         assert_eq!(chunk.get_line(10000), None);
+
+        chunk.write(OpCode::Return, 100);
+        chunk.write(OpCode::Return, 100);
+
+        for offset in 12..=13 {
+            assert_eq!(chunk.get_line(offset), Some(100));
+        }
     }
 }
