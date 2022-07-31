@@ -13,6 +13,8 @@ pub enum InterpretError {
     RuntimeError,
 }
 
+pub struct InterpretResult;
+
 impl From<ChunkError> for InterpretError {
     fn from(_value: ChunkError) -> InterpretError {
         InterpretError::RuntimeError
@@ -20,6 +22,10 @@ impl From<ChunkError> for InterpretError {
 }
 
 impl<'a> VM<'a> {
+    pub fn interpret(&mut self, ) -> Result<InterpretResult, InterpretError> {
+        Ok(InterpretResult)
+    }
+
     pub fn instruct(&mut self, chunk: &'a Chunk) -> Result<(), InterpretError> {
         self.chunk = Some(chunk);
         self.ip = 0;
