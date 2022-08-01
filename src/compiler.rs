@@ -28,7 +28,7 @@ pub enum TokenType {
     EOF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Token<'a> {
     pub token_type: TokenType,
     pub literal: &'a str,
@@ -99,13 +99,21 @@ impl <'a> Scanner<'a> {
                 Ok(self.make_token(token_type))
             },
             '>' => {
-                let token_type = if self.match_char('=')? { TokenType::GreaterEqual } else { TokenType::Equal };
+                let token_type = if self.match_char('=')? { TokenType::GreaterEqual } else { TokenType::Greater };
                 Ok(self.make_token(token_type))
             },
             '"' => self.string(),
             c if c.is_ascii_digit() => self.number(),
+            c if c.is_alphabetic() => self.identifier(),
             _ => Err(ScanError::UnexpectedCharacter)
         }
+    }
+
+    fn identifier(&mut self) -> Result<Token<'a>, ScanError> {
+        while self.check(|c| c.is_ascii_digit() || c.is_alphabetic())? {
+            self.advance()?;
+        }
+        Ok(self.make_token(TokenType::Identifier))
     }
 
     fn string(&mut self) -> Result<Token<'a>, ScanError> {
@@ -154,7 +162,7 @@ impl <'a> Scanner<'a> {
 
     fn match_char(&mut self, expected: char) -> Result<bool, ScanError> {
         Ok(
-            if self.is_at_end() || self.peek()? != Some(expected) {
+            if self.is_at_end() || self.check(|c| c != expected)? {
                 false
             } else {
                 self.current += 1;
@@ -207,5 +215,64 @@ impl <'a> Scanner<'a> {
 
     fn is_at_end(&self) -> bool {
         self.current == self.source.len()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_primitives() {
+        assert_eq!(test_scan_token("("), TokenType::LeftParen);
+        assert_eq!(test_scan_token(")"), TokenType::RightParen);
+        assert_eq!(test_scan_token("{"), TokenType::LeftBrace);
+        assert_eq!(test_scan_token("}"), TokenType::RightBrace);
+        assert_eq!(test_scan_token(";"), TokenType::Semicolon);
+        assert_eq!(test_scan_token(","), TokenType::Comma);
+        assert_eq!(test_scan_token("."), TokenType::Dot);
+        assert_eq!(test_scan_token("-"), TokenType::Minus);
+        assert_eq!(test_scan_token("+"), TokenType::Plus);
+        assert_eq!(test_scan_token("/"), TokenType::Slash);
+        assert_eq!(test_scan_token("*"), TokenType::Star);
+        assert_eq!(test_scan_token("!"), TokenType::Bang);
+        assert_eq!(test_scan_token("!="), TokenType::BangEqual);
+        assert_eq!(test_scan_token("="), TokenType::Equal);
+        assert_eq!(test_scan_token("=="), TokenType::EqualEqual);
+        assert_eq!(test_scan_token("<"), TokenType::Less);
+        assert_eq!(test_scan_token("<="), TokenType::LessEqual);
+        assert_eq!(test_scan_token(">"), TokenType::Greater);
+        assert_eq!(test_scan_token(">="), TokenType::GreaterEqual);
+    }
+
+    #[test]
+    fn test_number() {
+        test_scan("   123 ", "123", TokenType::Number);
+        test_scan("   123.123 ", "123.123", TokenType::Number);
+    }
+
+    #[test]
+    fn test_string() {
+        test_scan("   \"blah\" ", "\"blah\"", TokenType::String);
+        test_scan("
+\"Here's a multiline
+string\"
+", "\"Here's a multiline\nstring\"", TokenType::String);
+    }
+
+    #[test]
+    fn test_identifier() {
+        test_scan("   blah ", "blah", TokenType::Identifier);
+        test_scan("   foo9000 ", "foo9000", TokenType::Identifier);
+    }
+
+    fn test_scan(input: &str, expected: &str, expected_type: TokenType) {
+        let Token {literal, token_type, ..} = Scanner::new(input).scan_token().unwrap();
+        assert_eq!(literal, expected);
+        assert_eq!(token_type, expected_type);
+    }
+
+    fn test_scan_token(input: &str) -> TokenType {
+        Scanner::new(input).scan_token().unwrap().token_type
     }
 }
