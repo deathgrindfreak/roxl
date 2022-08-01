@@ -35,26 +35,30 @@ pub struct Token<'a> {
     pub line: u32,
 }
 
+#[derive(Debug)]
 pub enum ScanError {
     UnexpectedCharacter,
     ExpectedMoreInput,
+    UnterminatedString,
+    BadPeekOffset,
 }
 
 impl <'a> Scanner<'a> {
     pub fn compile(source: &'a str) -> Result<(), ScanError> {
         let mut s = Scanner::new(source);
 
-        let mut line: Option<u32> = None;
+        let mut current_line: Option<u32> = None;
         loop {
-            let token = s.scan_token()?;
-            if Some(token.line) != line {
-                println!("{:0<4}", token.line);
-                line = Some(token.line);
+            let Token{line, literal, token_type} = s.scan_token()?;
+            if Some(line) != current_line {
+                print!("{:>4}", line);
+                current_line = Some(line);
             } else {
-                println!("    | ");
+                print!("   | ");
             }
+            println!(" {:?} '{}'", token_type, literal);
 
-            if token.token_type == TokenType::EOF { break; }
+            if token_type == TokenType::EOF { break; }
         }
 
         Ok(())
@@ -98,21 +102,47 @@ impl <'a> Scanner<'a> {
                 let token_type = if self.match_char('=')? { TokenType::GreaterEqual } else { TokenType::Equal };
                 Ok(self.make_token(token_type))
             },
+            '"' => self.string(),
+            c if c.is_ascii_digit() => self.number(),
             _ => Err(ScanError::UnexpectedCharacter)
         }
+    }
+
+    fn string(&mut self) -> Result<Token<'a>, ScanError> {
+        while self.check(|c| c != '"')? && !self.is_at_end() {
+            if self.check(|c| c == '\n')? { self.line += 1; }
+            self.advance()?;
+        }
+
+        if self.is_at_end() { return Err(ScanError::UnterminatedString) }
+        self.advance()?;
+
+        Ok(self.make_token(TokenType::String))
+    }
+
+    fn number(&mut self) -> Result<Token<'a>, ScanError> {
+        while self.check(|c| c.is_ascii_digit())? { self.advance()?; }
+
+        if self.check(|c| c == '.')? && self.check_next(|c| c.is_ascii_digit())? {
+            self.advance()?;
+
+            while self.check(|c| c.is_ascii_digit())? { self.advance()?; }
+        }
+
+        Ok(self.make_token(TokenType::Number))
     }
 
     fn skip_whitespace(&mut self) -> Result<(), ScanError> {
         loop {
             match self.peek()? {
-                ' ' | '\r' | '\t' => { self.advance()?; },
-                '\n' => {
+                Some(' ') | Some('\r') | Some('\t') => { self.advance()?; },
+                Some('\n') => {
                     self.line += 1;
                     self.advance()?;
                 },
-                '/' => {
+                Some('/') => {
                     if self.peek_next()? == Some('/') {
-                        while self.peek()? != '\n' && !self.is_at_end() { self.advance()?; }
+                        while self.check(|c| c != '\n')? && !self.is_at_end() { self.advance()?; }
                     } else {
                         return Ok(());
                     }
@@ -124,7 +154,7 @@ impl <'a> Scanner<'a> {
 
     fn match_char(&mut self, expected: char) -> Result<bool, ScanError> {
         Ok(
-            if self.is_at_end() || self.peek()? != expected {
+            if self.is_at_end() || self.peek()? != Some(expected) {
                 false
             } else {
                 self.current += 1;
@@ -135,7 +165,7 @@ impl <'a> Scanner<'a> {
 
     fn advance(&mut self) -> Result<char, ScanError> {
         self.current += 1;
-        self.peek_nth(-1)
+        Ok(self.peek_nth(-1)?.unwrap())
     }
 
     fn peek_next(&self) -> Result<Option<char>, ScanError> {
@@ -143,23 +173,28 @@ impl <'a> Scanner<'a> {
             if self.is_at_end() {
                 None
             } else {
-                Some(self.peek_nth(1)?)
+                self.peek_nth(1)?
             }
         )
     }
 
-    fn peek(&self) -> Result<char, ScanError> {
+    fn check_next<F: Fn(char) -> bool>(&self, pred: F) -> Result<bool, ScanError> {
+        Ok(self.peek_next()?.map(pred).unwrap_or(false))
+    }
+
+    fn check<F: Fn(char) -> bool>(&self, pred: F) -> Result<bool, ScanError> {
+        Ok(self.peek()?.map(pred).unwrap_or(false))
+    }
+
+    fn peek(&self) -> Result<Option<char>, ScanError> {
         self.peek_nth(0)
     }
 
-    fn peek_nth(&self, offset: i32) -> Result<char, ScanError> {
-        self.source.chars()
-                   .nth(
-                       ((self.current as i32) + offset)
-                           .try_into()
-                           .map_err(|_| ScanError::ExpectedMoreInput)?
-                   )
-                   .ok_or(ScanError::ExpectedMoreInput)
+    fn peek_nth(&self, offset: i32) -> Result<Option<char>, ScanError> {
+        Ok(self.source.chars()
+           .nth(((self.current as i32) + offset)
+                .try_into()
+                .map_err(|_| ScanError::BadPeekOffset)?))
     }
 
     fn make_token(&self, token_type: TokenType) -> Token<'a> {
