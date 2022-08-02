@@ -113,7 +113,56 @@ impl <'a> Scanner<'a> {
         while self.check(|c| c.is_ascii_digit() || c.is_alphabetic())? {
             self.advance()?;
         }
-        Ok(self.make_token(TokenType::Identifier))
+        Ok(self.make_token(self.identifier_type()?))
+    }
+
+    fn identifier_type(&self) -> Result<TokenType, ScanError> {
+        match self.source.chars().nth(self.start).ok_or(ScanError::BadPeekOffset)? {
+            'a' => Ok(self.check_keyword(1, "nd", TokenType::And)),
+            'c' => Ok(self.check_keyword(1, "lass", TokenType::Class)),
+            'e' => Ok(self.check_keyword(1, "lse", TokenType::Else)),
+            'f' => {
+                if self.current - self.start > 1 {
+                    match self.source.chars().nth(self.start + 1).ok_or(ScanError::BadPeekOffset)? {
+                        'a' => Ok(self.check_keyword(2, "lse", TokenType::False)),
+                        'o' => Ok(self.check_keyword(2, "r", TokenType::For)),
+                        'u' => Ok(self.check_keyword(2, "n", TokenType::Fun)),
+                        _ => Ok(TokenType::Identifier),
+                    }
+                } else {
+                    Ok(TokenType::Identifier)
+                }
+            }
+            'i' => Ok(self.check_keyword(1, "f", TokenType::If)),
+            'n' => Ok(self.check_keyword(1, "il", TokenType::Nil)),
+            'o' => Ok(self.check_keyword(1, "r", TokenType::Or)),
+            'p' => Ok(self.check_keyword(1, "rint", TokenType::Print)),
+            'r' => Ok(self.check_keyword(1, "eturn", TokenType::Return)),
+            's' => Ok(self.check_keyword(1, "uper", TokenType::Super)),
+            't' => {
+                if self.current - self.start > 1 {
+                    match self.source.chars().nth(self.start + 1).ok_or(ScanError::BadPeekOffset)? {
+                        'h' => Ok(self.check_keyword(2, "is", TokenType::This)),
+                        'r' => Ok(self.check_keyword(2, "ue", TokenType::True)),
+                        _ => Ok(TokenType::Identifier),
+                    }
+                } else {
+                    Ok(TokenType::Identifier)
+                }
+            }
+            'v' => Ok(self.check_keyword(1, "ar", TokenType::Var)),
+            'w' => Ok(self.check_keyword(1, "hile", TokenType::While)),
+            _ => Ok(TokenType::Identifier),
+        }
+    }
+
+    fn check_keyword(&self, start: usize, rest: &'a str, token_type: TokenType) -> TokenType {
+        let offset = self.start + start;
+        if self.current - self.start == start + rest.len() && self.source[offset..offset + rest.len()] == rest[..] {
+            token_type
+        } else {
+            TokenType::Identifier
+        }
     }
 
     fn string(&mut self) -> Result<Token<'a>, ScanError> {
@@ -261,12 +310,33 @@ string\"
     }
 
     #[test]
+    fn test_keywords() {
+        test_scan("and", "and", TokenType::And);
+        test_scan("class", "class", TokenType::Class);
+        test_scan("else", "else", TokenType::Else);
+        test_scan("false", "false", TokenType::False);
+        test_scan("for", "for", TokenType::For);
+        test_scan("fun", "fun", TokenType::Fun);
+        test_scan("if", "if", TokenType::If);
+        test_scan("nil", "nil", TokenType::Nil);
+        test_scan("or", "or", TokenType::Or);
+        test_scan("print", "print", TokenType::Print);
+        test_scan("return", "return", TokenType::Return);
+        test_scan("super", "super", TokenType::Super);
+        test_scan("this", "this", TokenType::This);
+        test_scan("true", "true", TokenType::True);
+        test_scan("var", "var", TokenType::Var);
+        test_scan("while", "while", TokenType::While);
+    }
+
+    #[test]
     fn test_identifier() {
         test_scan("   blah ", "blah", TokenType::Identifier);
         test_scan("   foo9000 ", "foo9000", TokenType::Identifier);
     }
 
     fn test_scan(input: &str, expected: &str, expected_type: TokenType) {
+        eprintln!("{}", input);
         let Token {literal, token_type, ..} = Scanner::new(input).scan_token().unwrap();
         assert_eq!(literal, expected);
         assert_eq!(token_type, expected_type);
