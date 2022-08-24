@@ -1,348 +1,238 @@
 use std::str;
+use crate::token::{Token, TokenType};
+use crate::scanner::{ScanError, Scanner};
+use crate::chunk::{Chunk, OpCode, Value};
+use crate::precedence::Precedence;
 
-#[derive(Default)]
-pub struct Scanner<'a> {
-    source: &'a str,
-    start: usize,
-    current: usize,
-    line: u32,
-}
+pub fn compile(source: &str, chunk: &mut Chunk) -> Result<(), ScanError> {
+    let mut p = Parser::new(source, chunk);
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum TokenType {
-    // Single-character tokens
-    LeftParen, RightParen, LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
+    p.advance();
+    p.expression();
+    p.consume(TokenType::EOF, "Expect end of expression.");
+    p.emit_byte(OpCode::Return);
 
-    // One or two character tokens
-    Bang, BangEqual, Equal, EqualEqual, Greater,
-    Less, GreaterEqual, LessEqual,
-
-    // Literals
-    Identifier, String, Number,
-
-    // Keywords
-    And, Class, Else, False, For, Fun, If, Nil, Or, Print,
-    Return, Super, This, True, Var, While,
-
-    EOF,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Token<'a> {
-    pub token_type: TokenType,
-    pub literal: &'a str,
-    pub line: u32,
+    Ok(())
 }
 
 #[derive(Debug)]
-pub enum ScanError {
-    UnexpectedCharacter,
-    ExpectedMoreInput,
-    UnterminatedString,
-    BadPeekOffset,
+pub struct Parser<'a> {
+    scanner: Scanner<'a>,
+    chunk: &'a mut Chunk,
+
+    previous: Option<Token<'a>>,
+    current: Option<Token<'a>>,
+
+    had_error: bool,
+    panic_mode: bool,
 }
 
-impl <'a> Scanner<'a> {
-    pub fn compile(source: &'a str) -> Result<(), ScanError> {
-        let mut s = Scanner::new(source);
+#[derive(Debug)]
+pub enum ParseError {
+    ScanError(ScanError)
+}
 
-        let mut current_line: Option<u32> = None;
+impl From<ScanError> for ParseError {
+    fn from(value: ScanError) -> ParseError {
+        ParseError::ScanError(value)
+    }
+}
+
+type ParserFn<'a, 'b> = fn(&'b mut Parser<'a>);
+struct Rule<'a, 'b>(Option<Box<ParserFn<'a, 'b>>>, Option<Box<ParserFn<'a, 'b>>>, Precedence);
+
+fn get_rule<'a, 'b>(token_type: TokenType) -> Rule<'a, 'b> {
+    match token_type {
+        TokenType::LeftParen => Rule(Some(Box::new(Parser::<'a>::grouping)), None, Precedence::None),
+        TokenType::RightParen => Rule(None, None, Precedence::None),
+        TokenType::LeftBrace => Rule(None, None, Precedence::None),
+        TokenType::RightBrace => Rule(None, None, Precedence::None),
+        TokenType::Comma => Rule(None, None, Precedence::None),
+        TokenType::Dot => Rule(None, None, Precedence::None),
+        TokenType::Minus => Rule(Some(Box::new(Parser::<'a>::unary)), Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
+        TokenType::Plus => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
+        TokenType::Semicolon => Rule(None, None, Precedence::None),
+        TokenType::Slash => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
+        TokenType::Star => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
+        TokenType::Bang => Rule(None, None, Precedence::None),
+        TokenType::BangEqual => Rule(None, None, Precedence::None),
+        TokenType::Equal => Rule(None, None, Precedence::None),
+        TokenType::EqualEqual => Rule(None, None, Precedence::None),
+        TokenType::Greater => Rule(None, None, Precedence::None),
+        TokenType::Less => Rule(None, None, Precedence::None),
+        TokenType::GreaterEqual => Rule(None, None, Precedence::None),
+        TokenType::LessEqual => Rule(None, None, Precedence::None),
+        TokenType::Identifier => Rule(None, None, Precedence::None),
+        TokenType::String => Rule(None, None, Precedence::None),
+        TokenType::Number => Rule(Some(Box::new(Parser::<'a>::number)), None, Precedence::None),
+        TokenType::And => Rule(None, None, Precedence::None),
+        TokenType::Class => Rule(None, None, Precedence::None),
+        TokenType::Else => Rule(None, None, Precedence::None),
+        TokenType::False => Rule(None, None, Precedence::None),
+        TokenType::For => Rule(None, None, Precedence::None),
+        TokenType::Fun => Rule(None, None, Precedence::None),
+        TokenType::If => Rule(None, None, Precedence::None),
+        TokenType::Nil => Rule(None, None, Precedence::None),
+        TokenType::Or => Rule(None, None, Precedence::None),
+        TokenType::Print => Rule(None, None, Precedence::None),
+        TokenType::Return => Rule(None, None, Precedence::None),
+        TokenType::Super => Rule(None, None, Precedence::None),
+        TokenType::This => Rule(None, None, Precedence::None),
+        TokenType::True => Rule(None, None, Precedence::None),
+        TokenType::Var => Rule(None, None, Precedence::None),
+        TokenType::While => Rule(None, None, Precedence::None),
+        TokenType::EOF => Rule(None, None, Precedence::None),
+    }
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(source: &'a str, chunk: &'a mut Chunk) -> Self {
+        Parser {
+            scanner: Scanner::new(source),
+            chunk,
+            previous: None,
+            current: None,
+            had_error: false,
+            panic_mode: false,
+        }
+    }
+
+    pub fn expression(&mut self) {
+        self.parse_precedence(Precedence::Assignment)
+    }
+
+    pub fn grouping(&mut self) {
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after expression.");
+    }
+
+    pub fn binary(&mut self) {
+        let operator_type = self.get_previous().token_type;
+
+        let Rule(_, _, precedence) = get_rule(operator_type);
+        self.parse_precedence(precedence + 1);
+
+        match operator_type {
+            TokenType::Plus => self.emit_byte(OpCode::Add),
+            TokenType::Minus => self.emit_byte(OpCode::Subtract),
+            TokenType::Star => self.emit_byte(OpCode::Multiply),
+            TokenType::Slash => self.emit_byte(OpCode::Divide),
+            _ => {}
+        }
+    }
+
+    pub fn unary(&mut self) {
+        let operator_type = self.get_previous().token_type;
+
+        self.parse_precedence(Precedence::Unary);
+
+        match operator_type {
+            TokenType::Minus => {
+                self.emit_byte(OpCode::Negate);
+            },
+            _ => {}
+        }
+    }
+
+    fn parse_precedence(&mut self, precedence: Precedence) {
+        self.advance();
+        match get_rule(self.get_previous().token_type) {
+            Rule(Some(prefix_rule), _, _) => prefix_rule(self),
+            _ => self.error("Expect expression."),
+        }
+    }
+
+    pub fn number(&mut self) {
+        self.emit_constant(
+            self.get_previous()
+                .literal
+                .parse()
+                .expect("Expected number")
+        )
+    }
+
+    fn emit_constant(&mut self, value: Value) {
+        let constant = self.make_constant(value);
+        self.emit_bytes(OpCode::Constant.into(), constant);
+    }
+
+    fn make_constant(&mut self, value: Value) -> u8 {
+        match self.chunk.add_constant(value).try_into() {
+            Ok(c) => c,
+            Err(_) => {
+                self.error("Too many constants in one chunk.");
+                0
+            }
+        }
+    }
+
+    fn emit_return(&mut self) {
+        self.emit_byte(OpCode::Return);
+    }
+
+    fn emit_byte<U: Into<u8>>(&mut self, byte: U) {
+        let line = self.previous.as_ref().unwrap().line;
+        self.chunk.write(byte, line);
+    }
+
+    fn emit_bytes<U: Into<u8>>(&mut self, byte1: U, byte2: U) {
+        self.emit_byte(byte1);
+        self.emit_byte(byte2);
+    }
+
+    pub fn consume(&mut self, token_type: TokenType, message: &'a str) {
+        if self.current.as_ref().map_or(false, |t| t.token_type == token_type) {
+            self.advance();
+            return;
+        }
+
+        self.error_at_current(message);
+    }
+
+    pub fn get_previous(&self) -> &Token {
+        self.previous.as_ref().expect("Expected previous token")
+    }
+
+    pub fn advance(&mut self) {
+        self.previous = self.current.clone();
+
         loop {
-            let Token{line, literal, token_type} = s.scan_token()?;
-            if Some(line) != current_line {
-                print!("{:>4}", line);
-                current_line = Some(line);
-            } else {
-                print!("   | ");
-            }
-            println!(" {:?} '{}'", token_type, literal);
-
-            if token_type == TokenType::EOF { break; }
-        }
-
-        Ok(())
-    }
-
-    pub fn new(source: &'a str) -> Self {
-        Scanner {source, start: 0, current: 0, line: 1}
-    }
-
-    pub fn scan_token(&mut self) -> Result<Token<'a>, ScanError> {
-        self.skip_whitespace()?;
-        self.start = self.current;
-
-        if self.is_at_end() { return Ok(self.make_token(TokenType::EOF)); }
-
-        match self.advance()? {
-            '(' => Ok(self.make_token(TokenType::LeftParen)),
-            ')' => Ok(self.make_token(TokenType::RightParen)),
-            '{' => Ok(self.make_token(TokenType::LeftBrace)),
-            '}' => Ok(self.make_token(TokenType::RightBrace)),
-            ';' => Ok(self.make_token(TokenType::Semicolon)),
-            ',' => Ok(self.make_token(TokenType::Comma)),
-            '.' => Ok(self.make_token(TokenType::Dot)),
-            '-' => Ok(self.make_token(TokenType::Minus)),
-            '+' => Ok(self.make_token(TokenType::Plus)),
-            '/' => Ok(self.make_token(TokenType::Slash)),
-            '*' => Ok(self.make_token(TokenType::Star)),
-            '!' => {
-                let token_type = if self.match_char('=')? { TokenType::BangEqual } else { TokenType::Bang };
-                Ok(self.make_token(token_type))
-            },
-            '=' => {
-                let token_type = if self.match_char('=')? { TokenType::EqualEqual } else { TokenType::Equal };
-                Ok(self.make_token(token_type))
-            },
-            '<' => {
-                let token_type = if self.match_char('=')? { TokenType::LessEqual } else { TokenType::Less };
-                Ok(self.make_token(token_type))
-            },
-            '>' => {
-                let token_type = if self.match_char('=')? { TokenType::GreaterEqual } else { TokenType::Greater };
-                Ok(self.make_token(token_type))
-            },
-            '"' => self.string(),
-            c if c.is_ascii_digit() => self.number(),
-            c if c.is_alphabetic() => self.identifier(),
-            _ => Err(ScanError::UnexpectedCharacter)
-        }
-    }
-
-    fn identifier(&mut self) -> Result<Token<'a>, ScanError> {
-        while self.check(|c| c.is_ascii_digit() || c.is_alphabetic())? {
-            self.advance()?;
-        }
-        Ok(self.make_token(self.identifier_type()?))
-    }
-
-    fn identifier_type(&self) -> Result<TokenType, ScanError> {
-        match self.source.chars().nth(self.start).ok_or(ScanError::BadPeekOffset)? {
-            'a' => Ok(self.check_keyword(1, "nd", TokenType::And)),
-            'c' => Ok(self.check_keyword(1, "lass", TokenType::Class)),
-            'e' => Ok(self.check_keyword(1, "lse", TokenType::Else)),
-            'f' => {
-                if self.current - self.start > 1 {
-                    match self.source.chars().nth(self.start + 1).ok_or(ScanError::BadPeekOffset)? {
-                        'a' => Ok(self.check_keyword(2, "lse", TokenType::False)),
-                        'o' => Ok(self.check_keyword(2, "r", TokenType::For)),
-                        'u' => Ok(self.check_keyword(2, "n", TokenType::Fun)),
-                        _ => Ok(TokenType::Identifier),
-                    }
-                } else {
-                    Ok(TokenType::Identifier)
-                }
-            }
-            'i' => Ok(self.check_keyword(1, "f", TokenType::If)),
-            'n' => Ok(self.check_keyword(1, "il", TokenType::Nil)),
-            'o' => Ok(self.check_keyword(1, "r", TokenType::Or)),
-            'p' => Ok(self.check_keyword(1, "rint", TokenType::Print)),
-            'r' => Ok(self.check_keyword(1, "eturn", TokenType::Return)),
-            's' => Ok(self.check_keyword(1, "uper", TokenType::Super)),
-            't' => {
-                if self.current - self.start > 1 {
-                    match self.source.chars().nth(self.start + 1).ok_or(ScanError::BadPeekOffset)? {
-                        'h' => Ok(self.check_keyword(2, "is", TokenType::This)),
-                        'r' => Ok(self.check_keyword(2, "ue", TokenType::True)),
-                        _ => Ok(TokenType::Identifier),
-                    }
-                } else {
-                    Ok(TokenType::Identifier)
-                }
-            }
-            'v' => Ok(self.check_keyword(1, "ar", TokenType::Var)),
-            'w' => Ok(self.check_keyword(1, "hile", TokenType::While)),
-            _ => Ok(TokenType::Identifier),
-        }
-    }
-
-    fn check_keyword(&self, start: usize, rest: &'a str, token_type: TokenType) -> TokenType {
-        let offset = self.start + start;
-        if self.current - self.start == start + rest.len() && self.source[offset..offset + rest.len()] == rest[..] {
-            token_type
-        } else {
-            TokenType::Identifier
-        }
-    }
-
-    fn string(&mut self) -> Result<Token<'a>, ScanError> {
-        while self.check(|c| c != '"')? && !self.is_at_end() {
-            if self.check(|c| c == '\n')? { self.line += 1; }
-            self.advance()?;
-        }
-
-        if self.is_at_end() { return Err(ScanError::UnterminatedString) }
-        self.advance()?;
-
-        Ok(self.make_token(TokenType::String))
-    }
-
-    fn number(&mut self) -> Result<Token<'a>, ScanError> {
-        while self.check(|c| c.is_ascii_digit())? { self.advance()?; }
-
-        if self.check(|c| c == '.')? && self.check_next(|c| c.is_ascii_digit())? {
-            self.advance()?;
-
-            while self.check(|c| c.is_ascii_digit())? { self.advance()?; }
-        }
-
-        Ok(self.make_token(TokenType::Number))
-    }
-
-    fn skip_whitespace(&mut self) -> Result<(), ScanError> {
-        loop {
-            match self.peek()? {
-                Some(' ') | Some('\r') | Some('\t') => { self.advance()?; },
-                Some('\n') => {
-                    self.line += 1;
-                    self.advance()?;
+            match self.scanner.scan_token() {
+                Ok(token) =>  {
+                    self.current = Some(token);
+                    break;
                 },
-                Some('/') => {
-                    if self.peek_next()? == Some('/') {
-                        while self.check(|c| c != '\n')? && !self.is_at_end() { self.advance()?; }
-                    } else {
-                        return Ok(());
-                    }
+                Err(_e) => {
+                    let message = self.current.as_ref().map_or("", |t| t.literal);
+                    self.error_at_current(message);
                 }
-                _ => { return Ok(()); },
             }
         }
     }
 
-    fn match_char(&mut self, expected: char) -> Result<bool, ScanError> {
-        Ok(
-            if self.is_at_end() || self.check(|c| c != expected)? {
-                false
-            } else {
-                self.current += 1;
-                true
-            }
-        )
+    fn error_at_current(&mut self, message: &'a str) {
+        // TODO Need to handle 'None'
+        self.error_at(&self.current.clone().unwrap(), message)
     }
 
-    fn advance(&mut self) -> Result<char, ScanError> {
-        self.current += 1;
-        Ok(self.peek_nth(-1)?.unwrap())
+    fn error(&mut self, message: &'a str) {
+        // TODO Need to handle 'None'
+        self.error_at(&self.previous.clone().unwrap(), message)
     }
 
-    fn peek_next(&self) -> Result<Option<char>, ScanError> {
-        Ok(
-            if self.is_at_end() {
-                None
-            } else {
-                self.peek_nth(1)?
-            }
-        )
-    }
+    fn error_at(&mut self, token: &Token, message: &'a str) {
+        if self.panic_mode { return; }
+        self.panic_mode = true;
 
-    fn check_next<F: Fn(char) -> bool>(&self, pred: F) -> Result<bool, ScanError> {
-        Ok(self.peek_next()?.map(pred).unwrap_or(false))
-    }
+        eprint!("[line {}] Error", token.line);
 
-    fn check<F: Fn(char) -> bool>(&self, pred: F) -> Result<bool, ScanError> {
-        Ok(self.peek()?.map(pred).unwrap_or(false))
-    }
-
-    fn peek(&self) -> Result<Option<char>, ScanError> {
-        self.peek_nth(0)
-    }
-
-    fn peek_nth(&self, offset: i32) -> Result<Option<char>, ScanError> {
-        Ok(self.source.chars()
-           .nth(((self.current as i32) + offset)
-                .try_into()
-                .map_err(|_| ScanError::BadPeekOffset)?))
-    }
-
-    fn make_token(&self, token_type: TokenType) -> Token<'a> {
-        Token {
-            token_type,
-            literal: &self.source[self.start..self.current],
-            line: self.line,
+        if token.token_type == TokenType::EOF {
+            eprint!(" at end");
+        } else {
+            eprint!(" at '{}'", token.literal);
         }
-    }
 
-    fn is_at_end(&self) -> bool {
-        self.current == self.source.len()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_primitives() {
-        assert_eq!(test_scan_token("("), TokenType::LeftParen);
-        assert_eq!(test_scan_token(")"), TokenType::RightParen);
-        assert_eq!(test_scan_token("{"), TokenType::LeftBrace);
-        assert_eq!(test_scan_token("}"), TokenType::RightBrace);
-        assert_eq!(test_scan_token(";"), TokenType::Semicolon);
-        assert_eq!(test_scan_token(","), TokenType::Comma);
-        assert_eq!(test_scan_token("."), TokenType::Dot);
-        assert_eq!(test_scan_token("-"), TokenType::Minus);
-        assert_eq!(test_scan_token("+"), TokenType::Plus);
-        assert_eq!(test_scan_token("/"), TokenType::Slash);
-        assert_eq!(test_scan_token("*"), TokenType::Star);
-        assert_eq!(test_scan_token("!"), TokenType::Bang);
-        assert_eq!(test_scan_token("!="), TokenType::BangEqual);
-        assert_eq!(test_scan_token("="), TokenType::Equal);
-        assert_eq!(test_scan_token("=="), TokenType::EqualEqual);
-        assert_eq!(test_scan_token("<"), TokenType::Less);
-        assert_eq!(test_scan_token("<="), TokenType::LessEqual);
-        assert_eq!(test_scan_token(">"), TokenType::Greater);
-        assert_eq!(test_scan_token(">="), TokenType::GreaterEqual);
-    }
-
-    #[test]
-    fn test_number() {
-        test_scan("   123 ", "123", TokenType::Number);
-        test_scan("   123.123 ", "123.123", TokenType::Number);
-    }
-
-    #[test]
-    fn test_string() {
-        test_scan("   \"blah\" ", "\"blah\"", TokenType::String);
-        test_scan("
-\"Here's a multiline
-string\"
-", "\"Here's a multiline\nstring\"", TokenType::String);
-    }
-
-    #[test]
-    fn test_keywords() {
-        test_scan("and", "and", TokenType::And);
-        test_scan("class", "class", TokenType::Class);
-        test_scan("else", "else", TokenType::Else);
-        test_scan("false", "false", TokenType::False);
-        test_scan("for", "for", TokenType::For);
-        test_scan("fun", "fun", TokenType::Fun);
-        test_scan("if", "if", TokenType::If);
-        test_scan("nil", "nil", TokenType::Nil);
-        test_scan("or", "or", TokenType::Or);
-        test_scan("print", "print", TokenType::Print);
-        test_scan("return", "return", TokenType::Return);
-        test_scan("super", "super", TokenType::Super);
-        test_scan("this", "this", TokenType::This);
-        test_scan("true", "true", TokenType::True);
-        test_scan("var", "var", TokenType::Var);
-        test_scan("while", "while", TokenType::While);
-    }
-
-    #[test]
-    fn test_identifier() {
-        test_scan("   blah ", "blah", TokenType::Identifier);
-        test_scan("   foo9000 ", "foo9000", TokenType::Identifier);
-    }
-
-    fn test_scan(input: &str, expected: &str, expected_type: TokenType) {
-        eprintln!("{}", input);
-        let Token {literal, token_type, ..} = Scanner::new(input).scan_token().unwrap();
-        assert_eq!(literal, expected);
-        assert_eq!(token_type, expected_type);
-    }
-
-    fn test_scan_token(input: &str) -> TokenType {
-        Scanner::new(input).scan_token().unwrap().token_type
+        eprintln!(": {}", message);
+        self.had_error = true;
     }
 }

@@ -2,9 +2,7 @@ extern crate rlox;
 
 use std::io::Result;
 use std::fs::read_to_string;
-use rlox::chunk::{Chunk, OpCode};
 use rlox::vm::VM;
-use rlox::compiler::Scanner;
 
 use rustyline::error::ReadlineError;
 use rustyline::{Editor, Result as RLResult};
@@ -30,7 +28,8 @@ fn main()  {
 
 fn run_file(file_name: &str) -> Result<()> {
     let program = read_to_string(file_name)?;
-    Scanner::compile(&program).unwrap();
+    let mut vm = VM::default();
+    vm.interpret(&program).unwrap();
     Ok(())
 }
 
@@ -42,7 +41,8 @@ fn repl() -> RLResult<()> {
     loop {
         match rl.readline("> ") {
             Ok(l) => {
-                Scanner::compile(l.as_str()).unwrap();
+                let mut vm = VM::default();
+                vm.interpret(l.as_str()).unwrap();
                 rl.add_history_entry(l.as_str());
                 println!("{}", l);
             },

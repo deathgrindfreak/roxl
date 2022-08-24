@@ -49,7 +49,7 @@ impl From<OpCode> for u8 {
 
 pub type Value = f64;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Chunk {
     code: Vec<u8>,
     constants: Vec<Value>,

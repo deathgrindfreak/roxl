@@ -1,8 +1,9 @@
 use crate::chunk::{Chunk, OpCode, ChunkError, Value};
+use crate::compiler::compile;
 
 #[derive(Default)]
-pub struct VM<'a> {
-    chunk: Option<&'a Chunk>,
+pub struct VM {
+    chunk: Option<Chunk>,
     ip: usize,
     stack: Vec<Value>,
 }
@@ -21,12 +22,19 @@ impl From<ChunkError> for InterpretError {
     }
 }
 
-impl<'a> VM<'a> {
-    pub fn interpret(&mut self, ) -> Result<InterpretResult, InterpretError> {
-        Ok(InterpretResult)
+impl VM {
+    pub fn interpret(&mut self, source: &str) -> Result<InterpretResult, InterpretError> {
+        self.chunk = Some(Chunk::default());
+
+        if compile(source, self.chunk.as_mut().unwrap()).is_err() {
+            return Err(InterpretError::CompileError);
+        }
+
+        self.ip = 0;
+        self.run()
     }
 
-    pub fn instruct(&mut self, chunk: &'a Chunk) -> Result<(), InterpretError> {
+    pub fn instruct(&mut self, chunk: Chunk) -> Result<InterpretResult, InterpretError> {
         self.chunk = Some(chunk);
         self.ip = 0;
         self.run()
@@ -40,8 +48,8 @@ impl<'a> VM<'a> {
         self.stack.pop().ok_or(InterpretError::RuntimeError)
     }
 
-    fn chunk(&self) -> Result<&'a Chunk, InterpretError> {
-        self.chunk.ok_or(InterpretError::RuntimeError)
+    fn chunk(&self) -> Result<&Chunk, InterpretError> {
+        self.chunk.as_ref().ok_or(InterpretError::RuntimeError)
     }
 
     fn read_op(&mut self) -> Result<OpCode, InterpretError> {
@@ -64,7 +72,7 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    fn run(&mut self) -> Result<(), InterpretError> {
+    fn run(&mut self) -> Result<InterpretResult, InterpretError> {
         loop {
             match self.read_op()? {
                 OpCode::Return => {
@@ -72,8 +80,8 @@ impl<'a> VM<'a> {
                     break;
                 },
                 OpCode::Constant => {
-                    let constant = self.chunk()?
-                                       .read_constant(self.read_byte()?.into())?;
+                    let b = self.read_byte()?.into();
+                    let constant = self.chunk()?.read_constant(b)?;
                     self.push(constant);
                 },
                 OpCode::ConstantLong => {
@@ -96,6 +104,6 @@ impl<'a> VM<'a> {
                 },
             };
         }
-        Ok(())
+        Ok(InterpretResult)
     }
 }
