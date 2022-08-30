@@ -1,5 +1,7 @@
-use crate::chunk::{Chunk, OpCode, ChunkError, Value};
+use crate::value::Value;
+use crate::chunk::{Chunk, OpCode};
 use crate::compiler::compile;
+use crate::error::{InterpretError};
 
 #[derive(Default)]
 pub struct VM {
@@ -8,19 +10,7 @@ pub struct VM {
     stack: Vec<Value>,
 }
 
-#[derive(Debug)]
-pub enum InterpretError {
-    CompileError,
-    RuntimeError,
-}
-
 pub struct InterpretResult;
-
-impl From<ChunkError> for InterpretError {
-    fn from(_value: ChunkError) -> InterpretError {
-        InterpretError::RuntimeError
-    }
-}
 
 impl VM {
     pub fn interpret(&mut self, source: &str) -> Result<InterpretResult, InterpretError> {
@@ -65,10 +55,12 @@ impl VM {
     }
 
     fn binary_op<F>(&mut self, op: F) -> Result<(), InterpretError>
-    where F: Fn(Value, Value) -> Value {
+    where
+        F: Fn(Value, Value) -> Result<Value, InterpretError>
+    {
         let b = self.pop()?;
         let a = self.pop()?;
-        self.push(op(a, b));
+        self.push(op(a, b)?);
         Ok(())
     }
 
@@ -76,7 +68,7 @@ impl VM {
         loop {
             match self.read_op()? {
                 OpCode::Return => {
-                    println!("{}", self.pop()?);
+                    println!("{:?}", self.pop()?);
                     break;
                 },
                 OpCode::Constant => {

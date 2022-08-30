@@ -1,7 +1,5 @@
-pub enum ChunkError {
-    IPOutOfBoundsError,
-    BadOPCodeError(u8),
-}
+use crate::value::Value;
+use crate::error::ChunkError;
 
 pub enum OpCode {
     Constant,
@@ -47,11 +45,9 @@ impl From<OpCode> for u8 {
     }
 }
 
-pub type Value = f64;
-
 #[derive(Debug, Default)]
 pub struct Chunk {
-    code: Vec<u8>,
+    pub code: Vec<u8>,
     constants: Vec<Value>,
     lines: Vec<(u32, u32)>,
 }
@@ -144,7 +140,7 @@ impl Chunk {
             constant += (constant << 2) + self.code[offset + o];
         }
         println!(
-            "{} {:0<4} '{}'",
+            "{} {:0<4} '{:?}'",
             name, constant, self.constants[constant as usize]
         );
         offset + 4
@@ -153,7 +149,7 @@ impl Chunk {
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let constant = self.code[offset + 1];
         println!(
-            "{} {:0<4} '{}'",
+            "{} {:0<4} '{:?}'",
             name, constant, self.constants[constant as usize]
         );
         offset + 2

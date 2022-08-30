@@ -1,8 +1,10 @@
-use std::str;
+use crate::value::Value;
 use crate::token::{Token, TokenType};
 use crate::scanner::{ScanError, Scanner};
-use crate::chunk::{Chunk, OpCode, Value};
+use crate::chunk::{Chunk, OpCode};
 use crate::precedence::Precedence;
+
+use std::str;
 
 pub fn compile(source: &str, chunk: &mut Chunk) -> Result<(), ScanError> {
     let mut p = Parser::new(source, chunk);
@@ -10,7 +12,7 @@ pub fn compile(source: &str, chunk: &mut Chunk) -> Result<(), ScanError> {
     p.advance();
     p.expression();
     p.consume(TokenType::EOF, "Expect end of expression.");
-    p.emit_byte(OpCode::Return);
+    p.emit_return();
 
     Ok(())
 }
@@ -39,49 +41,63 @@ impl From<ScanError> for ParseError {
 }
 
 type ParserFn<'a, 'b> = fn(&'b mut Parser<'a>);
-struct Rule<'a, 'b>(Option<Box<ParserFn<'a, 'b>>>, Option<Box<ParserFn<'a, 'b>>>, Precedence);
+struct Rule<'a, 'b> {
+    prefix: Option<Box<ParserFn<'a, 'b>>>,
+    infix: Option<Box<ParserFn<'a, 'b>>>,
+    precedence: Precedence
+}
+
+impl<'a, 'b> Rule<'a, 'b> {
+    fn new(
+        prefix: Option<Box<ParserFn<'a, 'b>>>,
+        infix: Option<Box<ParserFn<'a, 'b>>>,
+        precedence: Precedence
+    ) -> Self {
+        Rule { prefix, infix, precedence }
+    }
+}
 
 fn get_rule<'a, 'b>(token_type: TokenType) -> Rule<'a, 'b> {
     match token_type {
-        TokenType::LeftParen => Rule(Some(Box::new(Parser::<'a>::grouping)), None, Precedence::None),
-        TokenType::RightParen => Rule(None, None, Precedence::None),
-        TokenType::LeftBrace => Rule(None, None, Precedence::None),
-        TokenType::RightBrace => Rule(None, None, Precedence::None),
-        TokenType::Comma => Rule(None, None, Precedence::None),
-        TokenType::Dot => Rule(None, None, Precedence::None),
-        TokenType::Minus => Rule(Some(Box::new(Parser::<'a>::unary)), Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
-        TokenType::Plus => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
-        TokenType::Semicolon => Rule(None, None, Precedence::None),
-        TokenType::Slash => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
-        TokenType::Star => Rule(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
-        TokenType::Bang => Rule(None, None, Precedence::None),
-        TokenType::BangEqual => Rule(None, None, Precedence::None),
-        TokenType::Equal => Rule(None, None, Precedence::None),
-        TokenType::EqualEqual => Rule(None, None, Precedence::None),
-        TokenType::Greater => Rule(None, None, Precedence::None),
-        TokenType::Less => Rule(None, None, Precedence::None),
-        TokenType::GreaterEqual => Rule(None, None, Precedence::None),
-        TokenType::LessEqual => Rule(None, None, Precedence::None),
-        TokenType::Identifier => Rule(None, None, Precedence::None),
-        TokenType::String => Rule(None, None, Precedence::None),
-        TokenType::Number => Rule(Some(Box::new(Parser::<'a>::number)), None, Precedence::None),
-        TokenType::And => Rule(None, None, Precedence::None),
-        TokenType::Class => Rule(None, None, Precedence::None),
-        TokenType::Else => Rule(None, None, Precedence::None),
-        TokenType::False => Rule(None, None, Precedence::None),
-        TokenType::For => Rule(None, None, Precedence::None),
-        TokenType::Fun => Rule(None, None, Precedence::None),
-        TokenType::If => Rule(None, None, Precedence::None),
-        TokenType::Nil => Rule(None, None, Precedence::None),
-        TokenType::Or => Rule(None, None, Precedence::None),
-        TokenType::Print => Rule(None, None, Precedence::None),
-        TokenType::Return => Rule(None, None, Precedence::None),
-        TokenType::Super => Rule(None, None, Precedence::None),
-        TokenType::This => Rule(None, None, Precedence::None),
-        TokenType::True => Rule(None, None, Precedence::None),
-        TokenType::Var => Rule(None, None, Precedence::None),
-        TokenType::While => Rule(None, None, Precedence::None),
-        TokenType::EOF => Rule(None, None, Precedence::None),
+        TokenType::LeftParen => Rule::new(Some(Box::new(Parser::<'a>::grouping)), None, Precedence::None),
+        TokenType::RightParen => Rule::new(None, None, Precedence::None),
+        TokenType::LeftBrace => Rule::new(None, None, Precedence::None),
+        TokenType::RightBrace => Rule::new(None, None, Precedence::None),
+        TokenType::Comma => Rule::new(None, None, Precedence::None),
+        TokenType::Dot => Rule::new(None, None, Precedence::None),
+        TokenType::Minus => Rule::new(Some(Box::new(Parser::<'a>::unary)), Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
+        TokenType::Plus => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Term),
+        TokenType::Semicolon => Rule::new(None, None, Precedence::None),
+        TokenType::Slash => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
+        TokenType::Star => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
+        TokenType::Bang => Rule::new(None, None, Precedence::None),
+        TokenType::BangEqual => Rule::new(None, None, Precedence::None),
+        TokenType::Equal => Rule::new(None, None, Precedence::None),
+        TokenType::EqualEqual => Rule::new(None, None, Precedence::None),
+        TokenType::Greater => Rule::new(None, None, Precedence::None),
+        TokenType::Less => Rule::new(None, None, Precedence::None),
+        TokenType::GreaterEqual => Rule::new(None, None, Precedence::None),
+        TokenType::LessEqual => Rule::new(None, None, Precedence::None),
+        TokenType::Identifier => Rule::new(None, None, Precedence::None),
+        TokenType::String => Rule::new(None, None, Precedence::None),
+        TokenType::Number => Rule::new(Some(Box::new(Parser::<'a>::number)), None, Precedence::None),
+        TokenType::And => Rule::new(None, None, Precedence::None),
+        TokenType::Class => Rule::new(None, None, Precedence::None),
+        TokenType::Else => Rule::new(None, None, Precedence::None),
+        TokenType::False => Rule::new(None, None, Precedence::None),
+        TokenType::For => Rule::new(None, None, Precedence::None),
+        TokenType::Fun => Rule::new(None, None, Precedence::None),
+        TokenType::If => Rule::new(None, None, Precedence::None),
+        TokenType::Nil => Rule::new(None, None, Precedence::None),
+        TokenType::Or => Rule::new(None, None, Precedence::None),
+        TokenType::Print => Rule::new(None, None, Precedence::None),
+        TokenType::Return => Rule::new(None, None, Precedence::None),
+        TokenType::Super => Rule::new(None, None, Precedence::None),
+        TokenType::This => Rule::new(None, None, Precedence::None),
+        TokenType::True => Rule::new(None, None, Precedence::None),
+        TokenType::Var => Rule::new(None, None, Precedence::None),
+        TokenType::While => Rule::new(None, None, Precedence::None),
+        TokenType::EOF => Rule::new(None, None, Precedence::None),
     }
 }
 
@@ -109,7 +125,7 @@ impl<'a> Parser<'a> {
     pub fn binary(&mut self) {
         let operator_type = self.get_previous().token_type;
 
-        let Rule(_, _, precedence) = get_rule(operator_type);
+        let Rule { precedence, .. } = get_rule(operator_type);
         self.parse_precedence(precedence + 1);
 
         match operator_type {
@@ -137,7 +153,16 @@ impl<'a> Parser<'a> {
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         match get_rule(self.get_previous().token_type) {
-            Rule(Some(prefix_rule), _, _) => prefix_rule(self),
+            Rule { prefix: Some(prefix_rule), .. } => {
+                prefix_rule(self);
+
+                while precedence <= get_rule(self.get_current().token_type).precedence {
+                    self.advance();
+                    if let Rule { infix: Some(infix_rule), .. } = get_rule(self.get_previous().token_type) {
+                        infix_rule(self);
+                    }
+                }
+            },
             _ => self.error("Expect expression."),
         }
     }
@@ -193,6 +218,10 @@ impl<'a> Parser<'a> {
         self.previous.as_ref().expect("Expected previous token")
     }
 
+    pub fn get_current(&self) -> &Token {
+        self.current.as_ref().expect("Expected previous token")
+    }
+
     pub fn advance(&mut self) {
         self.previous = self.current.clone();
 
@@ -234,5 +263,72 @@ impl<'a> Parser<'a> {
 
         eprintln!(": {}", message);
         self.had_error = true;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_basic_arithmetic() {
+        assert_expr("1 + 1", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Add.into()
+        ]);
+
+        assert_expr("2 * 2", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Multiply.into()
+        ]);
+
+        assert_expr("3 / 3", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Divide.into()
+        ]);
+
+        assert_expr("4 - 4", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Subtract.into()
+        ]);
+    }
+
+    #[test]
+    fn test_grouping() {
+        assert_expr("(1 + 1) * 2", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Add.into(),
+            OpCode::Constant.into(), 0x02,
+            OpCode::Multiply.into(),
+        ]);
+
+        assert_expr("(1 + 1) * (2 - 1) / 4", vec![
+            OpCode::Constant.into(), 0x00,
+            OpCode::Constant.into(), 0x01,
+            OpCode::Add.into(),
+            OpCode::Constant.into(), 0x02,
+            OpCode::Constant.into(), 0x03,
+            OpCode::Subtract.into(),
+            OpCode::Multiply.into(),
+            OpCode::Constant.into(), 0x04,
+            OpCode::Divide.into(),
+        ]);
+    }
+
+    fn assert_expr(source: &str, code: Vec<u8>) {
+        let mut chunk = Chunk::default();
+        let mut p = Parser::new(source, &mut chunk);
+
+        p.advance();
+        p.expression();
+        p.consume(TokenType::EOF, "Expect end of expression.");
+
+        eprintln!("{:?}", chunk);
+        assert_eq!(chunk.code, code);
     }
 }
