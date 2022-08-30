@@ -70,7 +70,7 @@ fn get_rule<'a, 'b>(token_type: TokenType) -> Rule<'a, 'b> {
         TokenType::Semicolon => Rule::new(None, None, Precedence::None),
         TokenType::Slash => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
         TokenType::Star => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Factor),
-        TokenType::Bang => Rule::new(None, None, Precedence::None),
+        TokenType::Bang => Rule::new(Some(Box::new(Parser::<'a>::unary)), None, Precedence::None),
         TokenType::BangEqual => Rule::new(None, None, Precedence::None),
         TokenType::Equal => Rule::new(None, None, Precedence::None),
         TokenType::EqualEqual => Rule::new(None, None, Precedence::None),
@@ -84,17 +84,17 @@ fn get_rule<'a, 'b>(token_type: TokenType) -> Rule<'a, 'b> {
         TokenType::And => Rule::new(None, None, Precedence::None),
         TokenType::Class => Rule::new(None, None, Precedence::None),
         TokenType::Else => Rule::new(None, None, Precedence::None),
-        TokenType::False => Rule::new(None, None, Precedence::None),
+        TokenType::False => Rule::new(Some(Box::new(Parser::<'a>::literal)), None, Precedence::None),
         TokenType::For => Rule::new(None, None, Precedence::None),
         TokenType::Fun => Rule::new(None, None, Precedence::None),
         TokenType::If => Rule::new(None, None, Precedence::None),
-        TokenType::Nil => Rule::new(None, None, Precedence::None),
+        TokenType::Nil => Rule::new(Some(Box::new(Parser::<'a>::literal)), None, Precedence::None),
         TokenType::Or => Rule::new(None, None, Precedence::None),
         TokenType::Print => Rule::new(None, None, Precedence::None),
         TokenType::Return => Rule::new(None, None, Precedence::None),
         TokenType::Super => Rule::new(None, None, Precedence::None),
         TokenType::This => Rule::new(None, None, Precedence::None),
-        TokenType::True => Rule::new(None, None, Precedence::None),
+        TokenType::True => Rule::new(Some(Box::new(Parser::<'a>::literal)), None, Precedence::None),
         TokenType::Var => Rule::new(None, None, Precedence::None),
         TokenType::While => Rule::new(None, None, Precedence::None),
         TokenType::EOF => Rule::new(None, None, Precedence::None),
@@ -143,9 +143,8 @@ impl<'a> Parser<'a> {
         self.parse_precedence(Precedence::Unary);
 
         match operator_type {
-            TokenType::Minus => {
-                self.emit_byte(OpCode::Negate);
-            },
+            TokenType::Bang => self.emit_byte(OpCode::Not),
+            TokenType::Minus => self.emit_byte(OpCode::Negate),
             _ => {}
         }
     }
@@ -174,6 +173,15 @@ impl<'a> Parser<'a> {
                 .parse()
                 .expect("Expected number")
         )
+    }
+
+    pub fn literal(&mut self) {
+        match self.get_previous().token_type {
+            TokenType::Nil => self.emit_byte(OpCode::Nil),
+            TokenType::True => self.emit_byte(OpCode::True),
+            TokenType::False => self.emit_byte(OpCode::False),
+            _ => {},
+        }
     }
 
     fn emit_constant(&mut self, value: Value) {

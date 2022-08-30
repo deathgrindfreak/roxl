@@ -38,6 +38,25 @@ impl VM {
         self.stack.pop().ok_or(InterpretError::RuntimeError)
     }
 
+    fn peek(&mut self, distance: usize) -> Result<Value, InterpretError> {
+        self.stack.get(self.stack.len() - distance - 1)
+                  .cloned()
+                  .ok_or(InterpretError::RuntimeError)
+    }
+
+    fn reset_stack(&mut self) {
+        self.stack.clear();
+    }
+
+    fn runtime_error(&mut self, msg: &'static str) {
+        println!("{}", msg);
+
+        let instruction = self.ip - self.chunk().expect("Expected chunk").code.len() - 1;
+        let line = self.chunk().expect("Expected chunk").get_line(instruction);
+        println!("[line {}] in script", line.expect("Expected line"));
+        self.reset_stack();
+    }
+
     fn chunk(&self) -> Result<&Chunk, InterpretError> {
         self.chunk.as_ref().ok_or(InterpretError::RuntimeError)
     }
@@ -67,10 +86,7 @@ impl VM {
     fn run(&mut self) -> Result<InterpretResult, InterpretError> {
         loop {
             match self.read_op()? {
-                OpCode::Return => {
-                    println!("{:?}", self.pop()?);
-                    break;
-                },
+                OpCode::Return => { break; },
                 OpCode::Constant => {
                     let b = self.read_byte()?.into();
                     let constant = self.chunk()?.read_constant(b)?;
@@ -86,13 +102,23 @@ impl VM {
                     let constant = self.chunk()?.read_constant(idx)?;
                     self.push(constant);
                 },
+                OpCode::Nil => self.push(Value::Nil),
+                OpCode::True => self.push(Value::Bool(true)),
+                OpCode::False => self.push(Value::Bool(false)),
                 OpCode::Add => self.binary_op(|a, b| a + b)?,
                 OpCode::Subtract => self.binary_op(|a, b| a - b)?,
                 OpCode::Multiply => self.binary_op(|a, b| a * b)?,
                 OpCode::Divide => self.binary_op(|a, b| a / b)?,
+                OpCode::Not => {
+                    match self.pop()? {
+                        Value::Bool(b) => self.push(Value::Bool(!b)),
+                        Value::Nil => self.push(Value::Bool(true)),
+                        _ => return Err(InterpretError::ValueError("Expected falsable type")),
+                    }
+                },
                 OpCode::Negate => {
                     let v = self.pop()?;
-                    self.push(-v);
+                    self.push((-v)?);
                 },
             };
         }

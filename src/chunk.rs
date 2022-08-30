@@ -4,10 +4,14 @@ use crate::error::ChunkError;
 pub enum OpCode {
     Constant,
     ConstantLong,
+    Nil,
+    True,
+    False,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -19,12 +23,16 @@ impl TryFrom<u8> for OpCode {
         match value {
             0x00 => Ok(OpCode::Constant),
             0x01 => Ok(OpCode::ConstantLong),
-            0x02 => Ok(OpCode::Add),
-            0x03 => Ok(OpCode::Subtract),
-            0x04 => Ok(OpCode::Multiply),
-            0x05 => Ok(OpCode::Divide),
-            0x06 => Ok(OpCode::Negate),
-            0x07 => Ok(OpCode::Return),
+            0x02 => Ok(OpCode::Nil),
+            0x03 => Ok(OpCode::True),
+            0x04 => Ok(OpCode::False),
+            0x05 => Ok(OpCode::Add),
+            0x06 => Ok(OpCode::Subtract),
+            0x07 => Ok(OpCode::Multiply),
+            0x08 => Ok(OpCode::Divide),
+            0x09 => Ok(OpCode::Not),
+            0x0A => Ok(OpCode::Negate),
+            0x0B => Ok(OpCode::Return),
             _ => Err(ChunkError::BadOPCodeError(value)),
         }
     }
@@ -35,12 +43,16 @@ impl From<OpCode> for u8 {
         match op {
             OpCode::Constant => 0x00,
             OpCode::ConstantLong => 0x01,
-            OpCode::Add => 0x02,
-            OpCode::Subtract => 0x03,
-            OpCode::Multiply => 0x04,
-            OpCode::Divide => 0x05,
-            OpCode::Negate => 0x06,
-            OpCode::Return => 0x07,
+            OpCode::Nil => 0x02,
+            OpCode::True => 0x03,
+            OpCode::False => 0x04,
+            OpCode::Add => 0x05,
+            OpCode::Subtract => 0x06,
+            OpCode::Multiply => 0x07,
+            OpCode::Divide => 0x08,
+            OpCode::Not => 0x09,
+            OpCode::Negate => 0x0A,
+            OpCode::Return => 0x0B,
         }
     }
 }
@@ -121,10 +133,14 @@ impl Chunk {
         match op.try_into() {
             Ok(OpCode::Constant) => self.constant_instruction("OP_CONSTANT", offset),
             Ok(OpCode::ConstantLong) => self.constant_long_instruction("OP_CONSTANT_LONG", offset),
+            Ok(OpCode::Nil) => Self::simple_instruction("OP_NIL", offset),
+            Ok(OpCode::True) => Self::simple_instruction("OP_TRUE", offset),
+            Ok(OpCode::False) => Self::simple_instruction("OP_FALSE", offset),
             Ok(OpCode::Add) => Self::simple_instruction("OP_ADD", offset),
             Ok(OpCode::Subtract) => Self::simple_instruction("OP_SUBTRACT", offset),
             Ok(OpCode::Multiply) => Self::simple_instruction("OP_MULTIPLY", offset),
             Ok(OpCode::Divide) => Self::simple_instruction("OP_DIVIDE", offset),
+            Ok(OpCode::Not) => Self::simple_instruction("OP_NOT", offset),
             Ok(OpCode::Negate) => Self::simple_instruction("OP_NEGATE", offset),
             Ok(OpCode::Return) => Self::simple_instruction("OP_RETURN", offset),
             Err(_) => {
