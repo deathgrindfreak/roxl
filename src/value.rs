@@ -1,14 +1,25 @@
 use crate::error::InterpretError;
 
+use std::fmt;
 use std::str::FromStr;
 use std::num::ParseFloatError;
 use std::ops::{Add, Sub, Mul, Neg, Div};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(n) => write!(f, "{}", n),
+        }
+    }
 }
 
 impl Add<Value> for Value {

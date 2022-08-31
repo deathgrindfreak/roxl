@@ -86,7 +86,10 @@ impl VM {
     fn run(&mut self) -> Result<InterpretResult, InterpretError> {
         loop {
             match self.read_op()? {
-                OpCode::Return => { break; },
+                OpCode::Return => {
+                    println!("{}", self.pop()?);
+                    break;
+                },
                 OpCode::Constant => {
                     let b = self.read_byte()?.into();
                     let constant = self.chunk()?.read_constant(b)?;
@@ -105,6 +108,9 @@ impl VM {
                 OpCode::Nil => self.push(Value::Nil),
                 OpCode::True => self.push(Value::Bool(true)),
                 OpCode::False => self.push(Value::Bool(false)),
+                OpCode::Equal => self.binary_op(|a, b| Ok(Value::Bool(a == b)))?,
+                OpCode::Greater => self.binary_op(|a, b| Ok(Value::Bool(a > b)))?,
+                OpCode::Less => self.binary_op(|a, b| Ok(Value::Bool(a < b)))?,
                 OpCode::Add => self.binary_op(|a, b| a + b)?,
                 OpCode::Subtract => self.binary_op(|a, b| a - b)?,
                 OpCode::Multiply => self.binary_op(|a, b| a * b)?,

@@ -44,7 +44,6 @@ fn repl() -> RLResult<()> {
                 let mut vm = VM::default();
                 vm.interpret(l.as_str()).unwrap();
                 rl.add_history_entry(l.as_str());
-                println!("{}", l);
             },
             Err(ReadlineError::Eof) => {
                 std::process::exit(0);
