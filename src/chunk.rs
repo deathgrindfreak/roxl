@@ -82,8 +82,8 @@ impl Chunk {
         self.read(ip)?.try_into()
     }
 
-    pub fn read_constant(&self, ip: usize) -> Result<Value, ChunkError> {
-        self.constants.get(ip).ok_or(ChunkError::IPOutOfBoundsError).map(|&op| op)
+    pub fn read_constant(&self, ip: usize) -> Result<&Value, ChunkError> {
+        self.constants.get(ip).ok_or(ChunkError::IPOutOfBoundsError)
     }
 
     pub fn write<U: Into<u8>>(&mut self, op: U, line: u32) {
@@ -168,7 +168,7 @@ impl Chunk {
             constant += (constant << 2) + self.code[offset + o];
         }
         println!(
-            "{} {:0<4} '{:?}'",
+            "{} {:0<4} {}",
             name, constant, self.constants[constant as usize]
         );
         offset + 4
@@ -177,7 +177,7 @@ impl Chunk {
     fn constant_instruction(&self, name: &str, offset: usize) -> usize {
         let constant = self.code[offset + 1];
         println!(
-            "{} {:0<4} '{:?}'",
+            "{} {:0<4} {}",
             name, constant, self.constants[constant as usize]
         );
         offset + 2

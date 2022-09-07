@@ -88,12 +88,14 @@ impl VM {
             match self.read_op()? {
                 OpCode::Return => {
                     println!("{}", self.pop()?);
+                    self.chunk()?.disassemble_chunk("ASSEMBLY");
                     break;
                 },
                 OpCode::Constant => {
                     let b = self.read_byte()?.into();
                     let constant = self.chunk()?.read_constant(b)?;
-                    self.push(constant);
+                    // TODO Figure out how to avoid this clone
+                    self.push(constant.clone());
                 },
                 OpCode::ConstantLong => {
                     let mut idx: usize = 0;
@@ -103,7 +105,8 @@ impl VM {
                     }
 
                     let constant = self.chunk()?.read_constant(idx)?;
-                    self.push(constant);
+                    // TODO Figure out how to avoid this clone
+                    self.push(constant.clone());
                 },
                 OpCode::Nil => self.push(Value::Nil),
                 OpCode::True => self.push(Value::Bool(true)),

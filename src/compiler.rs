@@ -1,4 +1,4 @@
-use crate::value::Value;
+use crate::value::{Value, ObjectType};
 use crate::token::{Token, TokenType};
 use crate::scanner::{ScanError, Scanner};
 use crate::chunk::{Chunk, OpCode};
@@ -79,7 +79,7 @@ fn get_rule<'a, 'b>(token_type: TokenType) -> Rule<'a, 'b> {
         TokenType::GreaterEqual => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Comparison),
         TokenType::LessEqual => Rule::new(None, Some(Box::new(Parser::<'a>::binary)), Precedence::Comparison),
         TokenType::Identifier => Rule::new(None, None, Precedence::None),
-        TokenType::String => Rule::new(None, None, Precedence::None),
+        TokenType::String => Rule::new(Some(Box::new(Parser::<'a>::string)), None, Precedence::None),
         TokenType::Number => Rule::new(Some(Box::new(Parser::<'a>::number)), None, Precedence::None),
         TokenType::And => Rule::new(None, None, Precedence::None),
         TokenType::Class => Rule::new(None, None, Precedence::None),
@@ -123,7 +123,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn binary(&mut self) {
-        let operator_type = self.get_previous().token_type;
+        let operator_type = self.previous().token_type;
 
         let Rule { precedence, .. } = get_rule(operator_type);
         self.parse_precedence(precedence + 1);
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn unary(&mut self) {
-        let operator_type = self.get_previous().token_type;
+        let operator_type = self.previous().token_type;
 
         self.parse_precedence(Precedence::Unary);
 
@@ -157,13 +157,13 @@ impl<'a> Parser<'a> {
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
-        match get_rule(self.get_previous().token_type) {
+        match get_rule(self.previous().token_type) {
             Rule { prefix: Some(prefix_rule), .. } => {
                 prefix_rule(self);
 
                 while precedence <= get_rule(self.get_current().token_type).precedence {
                     self.advance();
-                    if let Rule { infix: Some(infix_rule), .. } = get_rule(self.get_previous().token_type) {
+                    if let Rule { infix: Some(infix_rule), .. } = get_rule(self.previous().token_type) {
                         infix_rule(self);
                     }
                 }
@@ -172,9 +172,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn string(&mut self) {
+        let p = self.previous().literal;
+        self.emit_constant(
+            Value::Object(
+                // Truncate the quotation marks
+                ObjectType::Str(p[1..p.len()-1].to_string())
+            )
+        );
+    }
+
     pub fn number(&mut self) {
         self.emit_constant(
-            self.get_previous()
+            self.previous()
                 .literal
                 .parse()
                 .expect("Expected number")
@@ -182,7 +192,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn literal(&mut self) {
-        match self.get_previous().token_type {
+        match self.previous().token_type {
             TokenType::Nil => self.emit_byte(OpCode::Nil),
             TokenType::True => self.emit_byte(OpCode::True),
             TokenType::False => self.emit_byte(OpCode::False),
@@ -228,7 +238,7 @@ impl<'a> Parser<'a> {
         self.error_at_current(message);
     }
 
-    pub fn get_previous(&self) -> &Token {
+    pub fn previous(&self) -> &Token {
         self.previous.as_ref().expect("Expected previous token")
     }
 

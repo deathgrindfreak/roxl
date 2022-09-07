@@ -5,11 +5,17 @@ use std::str::FromStr;
 use std::num::ParseFloatError;
 use std::ops::{Add, Sub, Mul, Neg, Div};
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ObjectType {
+    Str(String),
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
+    Object(ObjectType),
 }
 
 impl fmt::Display for Value {
@@ -18,6 +24,7 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "nil"),
             Value::Number(n) => write!(f, "{}", n),
+            Value::Object(ObjectType::Str(s)) => write!(f, "\"{}\"", s),
         }
     }
 }
@@ -28,7 +35,10 @@ impl Add<Value> for Value {
     fn add(self, o: Value) -> Self::Output {
         match (self, o) {
             (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(n1 + n2)),
-            _ => Err(InterpretError::ValueError("Can only add 2 number values")),
+            (Value::Object(ObjectType::Str(s1)), Value::Object(ObjectType::Str(s2))) => {
+                Ok(Value::Object(ObjectType::Str(s1 + &s2)))
+            },
+            _ => Err(InterpretError::ValueError("Can only add 2 number or string values")),
         }
     }
 }
@@ -80,14 +90,8 @@ impl Neg for Value {
 impl FromStr for Value {
     type Err = ParseFloatError;
 
+    // NOTE: Right now we only try to parse numeric strings into Values
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(
-            match s {
-                "true" => Value::Bool(true),
-                "false" => Value::Bool(false),
-                "nil" => Value::Nil,
-                _ => Value::Number(s.parse::<f64>()?)
-            }
-        )
+        Ok(Value::Number(s.parse::<f64>()?))
     }
 }
